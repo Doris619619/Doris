@@ -1,0 +1,418 @@
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <string>
+#include <sstream>
+#include <memory>
+#include <cctype>
+#include <algorithm>
+#include <functional>
+#include "Calculator.h"
+#include "FootprintPadAnalyzer.h"
+
+struct Node {
+    std::string name;
+    std::vector<std::string> parameters;
+    std::vector<std::shared_ptr<Node>> children;
+
+    Node(const std::string& n = "") : name(n) {}
+
+    void addParameter(const std::string& param) {
+        parameters.push_back(param);
+    }
+
+    void addChild(std::shared_ptr<Node> child) {
+        children.push_back(child);
+    }
+};
+
+class KiCadParser {
+private:
+    std::shared_ptr<Node> root;
+    size_t pos;
+    std::string content;
+    int segmentCounter;
+    std::vector<std::shared_ptr<Node>> allSegments;
+    std::vector<std::shared_ptr<Node>> allVias;
+    std::vector<std::shared_ptr<Node>> allFootprints;
+
+    void skipWhitespace() {
+        while (pos < content.size() && std::isspace(content[pos])) {
+            pos++;
+        }
+    }
+
+    char currentChar() {
+        if (pos < content.size()) {
+            return content[pos];
+        }
+        return '\0';
+    }
+
+    char nextChar() {
+        pos++;
+        return currentChar();
+    }
+
+    std::string readQuotedString() {
+        if (currentChar() != '"') {
+            return "";
+        }
+
+        pos++;
+        std::string result;
+
+        while (pos < content.size() && currentChar() != '"') {
+            if (currentChar() == '\\') {
+                pos++;
+            }
+            if (pos < content.size()) {
+                result += currentChar();
+                pos++;
+            }
+        }
+
+        if (currentChar() == '"') {
+            pos++;
+        }
+
+        return result;
+    }
+
+    std::string readToken() {
+        skipWhitespace();
+
+        if (pos >= content.size()) {
+            return "";
+        }
+
+        char c = currentChar();
+        if (c == '(' || c == ')') {
+            pos++;
+            return std::string(1, c);
+        }
+
+        if (c == '"') {
+            return "\"" + readQuotedString() + "\"";
+        }
+
+        std::string token;
+        while (pos < content.size()) {
+            c = currentChar();
+            if (std::isspace(c) || c == '(' || c == ')') {
+                break;
+            }
+            token += c;
+            pos++;
+        }
+
+        return token;
+    }
+
+    std::shared_ptr<Node> parseNode() {
+        skipWhitespace();
+
+        if (currentChar() != '(') {
+            return nullptr;
+        }
+
+        pos++;
+        skipWhitespace();
+
+        std::string name;
+        while (pos < content.size()) {
+            char c = currentChar();
+            if (std::isspace(c) || c == '(' || c == ')') {
+                break;
+            }
+            name += c;
+            pos++;
+        }
+
+        if (name.empty()) {
+            return nullptr;
+        }
+
+        auto node = std::make_shared<Node>(name);
+
+        while (pos < content.size()) {
+            skipWhitespace();
+
+            if (currentChar() == ')') {
+                pos++;
+                break;
+            }
+
+            if (currentChar() == '(') {
+                auto child = parseNode();
+                if (child) {
+                    node->addChild(child);
+                }
+            }
+            else {
+                std::string param;
+                if (currentChar() == '"') {
+                    param = readQuotedString();
+                }
+                else {
+                    param = readToken();
+                }
+
+                if (!param.empty() && param != ")" && param != "(") {
+                    node->addParameter(param);
+                }
+            }
+        }
+
+        return node;
+    }
+
+    void findNodesRecursive(const std::shared_ptr<Node>& node,
+        const std::string& targetName,
+        std::vector<std::shared_ptr<Node>>& results) {
+        if (!node) return;
+
+        if (node->name == targetName) {
+            results.push_back(node);
+        }
+
+        for (const auto& child : node->children) {
+            findNodesRecursive(child, targetName, results);
+        }
+    }
+
+
+    //给所有segment编号
+    void findAndNumberSegments() {
+        segmentCounter = 0;
+        allSegments.clear();
+        findNodesRecursive(root, "segment", allSegments);
+
+        for (auto& segment : allSegments) {
+            segmentCounter++;
+            segment->parameters.insert(segment->parameters.begin(), std::to_string(segmentCounter));
+        }
+    }
+    
+   
+
+    void findAllVias() {
+        allVias.clear();
+        findNodesRecursive(root, "via", allVias);
+    }
+
+    void findAndNumberFootprints() {
+        int footprintCounter = 0;  // 用来给footprint编号
+        allFootprints.clear();  // 清空原有的footprints
+        findNodesRecursive(root, "footprint", allFootprints);  // 查找所有footprint节点
+
+        for (auto& footprint : allFootprints) {
+            footprintCounter++;  // 递增footprint编号
+            footprint->parameters.insert(footprint->parameters.begin(), std::to_string(footprintCounter));  // 插入编号作为第一个参数
+        }
+    }
+
+
+public:
+    KiCadParser() : pos(0), segmentCounter(0) {}
+
+    bool parseFile(const std::string& filename) {
+        std::ifstream file(filename, std::ios::binary);
+        if (!file.is_open()) {
+            std::cerr << "无法打开文件: " << filename << std::endl;
+            return false;
+        }
+
+        content.assign((std::istreambuf_iterator<char>(file)),
+            std::istreambuf_iterator<char>());
+        file.close();
+
+        pos = 0;
+        root = parseNode();
+
+        if (root) {
+            findAndNumberSegments();
+            findAllVias();
+            findAndNumberFootprints();
+        }
+
+        return root != nullptr;
+    }
+
+    // 获取所有segment
+    const std::vector<std::shared_ptr<Node>>& getAllSegments() const {
+        return allSegments;
+    }
+
+    // 获取所有via
+    const std::vector<std::shared_ptr<Node>>& getAllVias() const {
+        return allVias;
+    }
+
+    // 获取所有footprint
+    const std::vector<std::shared_ptr<Node>>& getAllFootprints() const {
+        return allFootprints;
+    }
+
+    // 打印segment信息
+    void printSegmentInfo(const std::shared_ptr<Node>& segment) {
+        if (!segment || segment->name != "segment") {
+            std::cout << "不是有效的segment节点" << std::endl;
+            return;
+        }
+
+        std::cout << "Segment #" << segment->parameters[0] << ":" << std::endl;
+
+        if (segment->parameters.size() > 1) {
+            std::cout << "  参数: ";
+            for (size_t i = 1; i < segment->parameters.size(); i++) {
+                std::cout << "\"" << segment->parameters[i] << "\" ";
+            }
+            std::cout << std::endl;
+        }
+
+        if (!segment->children.empty()) {
+            std::cout << "  子节点:" << std::endl;
+            for (const auto& child : segment->children) {
+                std::cout << "    - " << child->name;
+                if (!child->parameters.empty()) {
+                    std::cout << " : ";
+                    for (const auto& param : child->parameters) {
+                        std::cout << "\"" << param << "\" ";
+                    }
+                }
+                std::cout << std::endl;
+            }
+        }
+    }
+
+    // 打印via信息
+    void printViaInfo(const std::shared_ptr<Node>& via) {
+        if (!via || via->name != "via") {
+            std::cout << "不是有效的via节点" << std::endl;
+            return;
+        }
+
+        std::cout << "Via:" << std::endl;
+
+        if (!via->parameters.empty()) {
+            std::cout << "  参数: ";
+            for (const auto& param : via->parameters) {
+                std::cout << "\"" << param << "\" ";
+            }
+            std::cout << std::endl;
+        }
+
+        if (!via->children.empty()) {
+            std::cout << "  子节点:" << std::endl;
+            for (const auto& child : via->children) {
+                std::cout << "    - " << child->name;
+                if (!child->parameters.empty()) {
+                    std::cout << " : ";
+                    for (const auto& param : child->parameters) {
+                        std::cout << "\"" << param << "\" ";
+                    }
+                }
+                std::cout << std::endl;
+            }
+        }
+    }
+
+    // 打印footprint信息
+    void printFootprintInfo(const std::shared_ptr<Node>& footprint) {
+        if (!footprint || footprint->name != "footprint") {
+            std::cout << "不是有效的footprint节点" << std::endl;
+            return;
+        }
+
+        std::cout << "Footprint: ";
+        if (!footprint->parameters.empty()) {
+            std::cout << footprint->parameters[0];
+        }
+        std::cout << std::endl;
+
+        if (!footprint->children.empty()) {
+            std::cout << "  子节点:" << std::endl;
+            for (const auto& child : footprint->children) {
+                std::cout << "    - " << child->name;
+                if (!child->parameters.empty()) {
+                    std::cout << " : ";
+                    for (const auto& param : child->parameters) {
+                        std::cout << "\"" << param << "\" ";
+                    }
+                }
+                std::cout << " (子节点数量: " << child->children.size() << ")" << std::endl;
+            }
+        }
+    }
+
+    // 打印所有segments
+    void printAllSegments() {
+        if (allSegments.empty()) {
+            std::cout << "没有找到任何segment" << std::endl;
+            return;
+        }
+
+        std::cout << "\n=== 所有Segment列表 (共 " << allSegments.size() << " 个) ===" << std::endl;
+        for (const auto& segment : allSegments) {
+            printSegmentInfo(segment);
+            std::cout << std::endl;
+        }
+    }
+
+    // 打印所有vias
+    void printAllVias() {
+        if (allVias.empty()) {
+            std::cout << "没有找到任何via" << std::endl;
+            return;
+        }
+
+        std::cout << "\n=== 所有Via列表 (共 " << allVias.size() << " 个) ===" << std::endl;
+        for (const auto& via : allVias) {
+            printViaInfo(via);
+            std::cout << std::endl;
+        }
+    }
+
+    // 打印所有footprints
+    void printAllFootprints() {
+        if (allFootprints.empty()) {
+            std::cout << "没有找到任何footprint" << std::endl;
+            return;
+        }
+
+        std::cout << "\n=== 所有Footprint列表 (共 " << allFootprints.size() << " 个) ===" << std::endl;
+        for (const auto& footprint : allFootprints) {
+            printFootprintInfo(footprint);
+            std::cout << std::endl;
+        }
+    }
+
+    // 打印树状结构
+    void printStructure(const std::shared_ptr<Node>& node = nullptr, int depth = 0, int maxDepth = 3) {
+        std::shared_ptr<Node> current = node ? node : root;
+
+        if (!current || depth > maxDepth) {
+            return;
+        }
+
+        std::string indent(depth * 2, ' ');
+        std::cout << indent << "Node: " << current->name;
+
+        if (!current->parameters.empty()) {
+            std::cout << " | Parameters: ";
+            for (const auto& param : current->parameters) {
+                std::cout << "\"" << param << "\" ";
+            }
+        }
+        std::cout << std::endl;
+
+        for (const auto& child : current->children) {
+            printStructure(child, depth + 1, maxDepth);
+        }
+    }
+};
+
+
+
+
