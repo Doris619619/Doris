@@ -1,66 +1,42 @@
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
-use IEEE.STD_LOGIC_UNSIGNED.ALL;
+entity number is
+    Port ( SW : in STD_LOGIC_VECTOR (3 downto 0);
+           BTN : in STD_LOGIC;
+           SEG : out STD_LOGIC_VECTOR (6 downto 0);
+           AN : out STD_LOGIC_VECTOR (3 downto 0));
+end number;
 
-entity BCD_Display is
-    Port (
-        SW     : in STD_LOGIC_VECTOR(3 downto 0);  -- SW3~SW0
-        S4     : in STD_LOGIC;                     -- 按钮
-        CLK    : in STD_LOGIC;                     -- 系统时钟
-        A_to_G : out STD_LOGIC_VECTOR(6 downto 0); -- a~g段输出
-        DIGIT  : out STD_LOGIC_VECTOR(3 downto 0)  -- 位选，选哪位数码管
-    );
-end BCD_Display;
-
-architecture Behavioral of BCD_Display is
-    signal raw_bcd   : STD_LOGIC_VECTOR(3 downto 0);
-    signal valid_bcd : STD_LOGIC_VECTOR(3 downto 0);
-    signal loaded_bcd: STD_LOGIC_VECTOR(3 downto 0);
-    signal seg       : STD_LOGIC_VECTOR(6 downto 0);
-    signal s4_prev   : STD_LOGIC := '0'; -- 用于上升沿检测
+architecture Behavioral of number is
+    signal bcd_value : STD_LOGIC_VECTOR(3 downto 0);
+    signal seg_out   : STD_LOGIC_VECTOR(6 downto 0);
 begin
-    -- 读取拨码开关的值
-    raw_bcd <= SW;
-
-    -- 限制值不超过9（如果 >9，设为9）
-    process(raw_bcd)
+    process(SW, BTN)
     begin
-        if raw_bcd > "1001" then
-            valid_bcd <= "1001";  -- 9
-        else
-            valid_bcd <= raw_bcd;
-        end if;
-    end process;
-
-    -- 加载：检测 S4 上升沿
-    process(CLK)
-    begin
-        if rising_edge(CLK) then
-            if (S4 = '1' and s4_prev = '0') then
-                loaded_bcd <= valid_bcd;
+        if BTN = '1' then
+            if SW > "1001" then
+                bcd_value <= "1001"; 
+            else
+                bcd_value <= SW;
             end if;
-            s4_prev <= S4;
         end if;
     end process;
-
-    -- BCD转7段译码
-    process(loaded_bcd)
+    process(bcd_value)
     begin
-        case loaded_bcd is
-            when "0000" => seg <= "1111110"; -- 0
-            when "0001" => seg <= "0110000"; -- 1
-            when "0010" => seg <= "1101101"; -- 2
-            when "0011" => seg <= "1111001"; -- 3
-            when "0100" => seg <= "0110011"; -- 4
-            when "0101" => seg <= "1011011"; -- 5
-            when "0110" => seg <= "1011111"; -- 6
-            when "0111" => seg <= "1110000"; -- 7
-            when "1000" => seg <= "1111111"; -- 8
-            when others => seg <= "1111011"; -- 9
+        case bcd_value is
+        when "0000" => seg_out <= "0111111"; -- 0
+        when "0001" => seg_out <= "0000110"; -- 1
+        when "0010" => seg_out <= "1011011"; -- 2
+        when "0011" => seg_out <= "1001111"; -- 3
+        when "0100" => seg_out <= "1100110"; -- 4
+        when "0101" => seg_out <= "1101101"; -- 5
+        when "0110" => seg_out <= "1111101"; -- 6
+        when "0111" => seg_out <= "0000111"; -- 7
+        when "1000" => seg_out <= "1111111"; -- 8
+        when "1001" => seg_out <= "1101111"; -- 9
+        when others => seg_out <= "0000000"; -- blank/off
         end case;
     end process;
-
-    -- 输出到段线与位选
-    A_to_G <= seg;              -- 段输出
-    DIGIT <= "1110";            -- 激活第1位（BIT1，对应第一个数码管）
+    SEG <= seg_out;
+    AN <= "0010";
 end Behavioral;
