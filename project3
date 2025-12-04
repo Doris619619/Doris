@@ -1,66 +1,74 @@
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
-use IEEE.STD_LOGIC_UNSIGNED.ALL;
+use IEEE.NUMERIC_STD.ALL;
 
-entity BCD_Display is
+entity TwoDigitDisplay is
     Port (
-        SW     : in STD_LOGIC_VECTOR(3 downto 0);  -- SW3~SW0
-        S4     : in STD_LOGIC;                     -- 按钮
-        CLK    : in STD_LOGIC;                     -- 系统时钟
-        A_to_G : out STD_LOGIC_VECTOR(6 downto 0); -- a~g段输出
-        DIGIT  : out STD_LOGIC_VECTOR(3 downto 0)  -- 位选，选哪位数码管
+        clk : in STD_LOGIC;
+        digit1 : in STD_LOGIC_VECTOR (3 downto 0); 
+        digit2 : in STD_LOGIC_VECTOR (3 downto 0); 
+        seg : out STD_LOGIC_VECTOR (6 downto 0);
+        an : out STD_LOGIC_VECTOR (1 downto 0)
     );
-end BCD_Display;
+end TwoDigitDisplay;
 
-architecture Behavioral of BCD_Display is
-    signal raw_bcd   : STD_LOGIC_VECTOR(3 downto 0);
-    signal valid_bcd : STD_LOGIC_VECTOR(3 downto 0);
-    signal loaded_bcd: STD_LOGIC_VECTOR(3 downto 0);
-    signal seg       : STD_LOGIC_VECTOR(6 downto 0);
-    signal s4_prev   : STD_LOGIC := '0'; -- 用于上升沿检测
+architecture Behavioral of TwoDigitDisplay is
+
+    signal refresh_counter : unsigned(15 downto 0) := (others => '0');
+    signal refresh_tick : std_logic := '0';
+    signal select_digit : std_logic := '0';
+    signal current_digit : STD_LOGIC_VECTOR (3 downto 0);
+
 begin
-    -- 读取拨码开关的值
-    raw_bcd <= SW;
 
-    -- 限制值不超过9（如果 >9，设为9）
-    process(raw_bcd)
+    -- Clock Divider for Refresh (~1kHz)
+    process(clk)
     begin
-        if raw_bcd > "1001" then
-            valid_bcd <= "1001";  -- 9
-        else
-            valid_bcd <= raw_bcd;
-        end if;
-    end process;
-
-    -- 加载：检测 S4 上升沿
-    process(CLK)
-    begin
-        if rising_edge(CLK) then
-            if (S4 = '1' and s4_prev = '0') then
-                loaded_bcd <= valid_bcd;
+        if rising_edge(clk) then
+            refresh_counter <= refresh_counter + 1;
+            if refresh_counter = 0 then
+                refresh_tick <= not refresh_tick;
             end if;
-            s4_prev <= S4;
         end if;
     end process;
 
-    -- BCD转7段译码
-    process(loaded_bcd)
+    -- Toggle between BIT1 and BIT2
+    process(clk)
     begin
-        case loaded_bcd is
-            when "0000" => seg <= "1111110"; -- 0
-            when "0001" => seg <= "0110000"; -- 1
-            when "0010" => seg <= "1101101"; -- 2
-            when "0011" => seg <= "1111001"; -- 3
-            when "0100" => seg <= "0110011"; -- 4
-            when "0101" => seg <= "1011011"; -- 5
-            when "0110" => seg <= "1011111"; -- 6
-            when "0111" => seg <= "1110000"; -- 7
-            when "1000" => seg <= "1111111"; -- 8
-            when others => seg <= "1111011"; -- 9
+        if rising_edge(clk) then
+            if refresh_tick = '1' then
+                select_digit <= not select_digit;
+            end if;
+        end if;
+    end process;
+
+    -- Select which digit to show
+    process(select_digit, digit1, digit2)
+    begin
+        if select_digit = '0' then
+            current_digit <= digit1;
+            an <= "10";
+        else
+            current_digit <= digit2;
+            an <= "01";
+        end if;
+    end process;
+
+    process(current_digit)
+    begin
+        case current_digit is
+            when "0000" => seg <= "0000001";
+            when "0001" => seg <= "1001111";
+            when "0010" => seg <= "0010010";
+            when "0011" => seg <= "0000110";
+            when "0100" => seg <= "1001100";
+            when "0101" => seg <= "0100100";
+            when "0110" => seg <= "0100000";
+            when "0111" => seg <= "0001111";
+            when "1000" => seg <= "0000000";
+            when "1001" => seg <= "0000100";
+            when others => seg <= "1111111";
         end case;
     end process;
 
-    -- 输出到段线与位选
-    A_to_G <= seg;              -- 段输出
-    DIGIT <= "1110";            -- 激活第1位（BIT1，对应第一个数码管）
 end Behavioral;
