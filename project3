@@ -40,3 +40,7 @@ begin
     SEG <= seg_out;
     AN <= "0010";
 end Behavioral;
+
+
+
+set_property CLOCK_DEDICATED_ROUTE FALSE [get_nets BTN_IBUF]
