@@ -62,4 +62,5 @@ endpoint,field_path,required,type,sync_status,sync_http_status,sync_error_code,s
 /responses,top_logprobs,N,Optional[int],,,,,,,,,,,N,
 /responses,top_p,N,Optional[float],,,,,,,,,,,N,
 /responses,truncation,N,"Optional[Literal['auto', 'disabled']]",,,,,,,,,,,N,
-/responses,user,N,str,,,,,,,,,,,N,
+/responses,user,N,str,,,,,,,,,,,Y,
+
